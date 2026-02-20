@@ -1,0 +1,10 @@
+# Normalize line endings: checkout with LF, commit as LF (good for cross-platform)
+* text=auto eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.toml text eol=lf
+
+# Binary files
+*.pdf binary
+*.db binary
