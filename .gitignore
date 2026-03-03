@@ -48,3 +48,6 @@ data/processed/*.jsonl
 
 # Raw data folder should be ignored 
 data/raw/*
+
+# todo list for my personal use
+todo_tasks.txt
