@@ -16,7 +16,9 @@ data/
   processed/      # chunks.db (SQLite) and optionally chunks.jsonl
 src/
   rag_system/
-    ingest/
+    ingest/       # loaders, chunking, SQLite store
+    retrieval/    # embeddings (HF API), vector search
+    routing/      # query intent router
 ```
 
 ### Setup (Windows / PowerShell)
@@ -42,7 +44,7 @@ python .\ingest.py --input data\raw --db data\processed\chunks.db --output data\
 
 ### SQLite schema
 - **documents**: `doc_id`, `source_path`, `source_ext`, `metadata_json`, `ingested_at`
-- **chunks**: `chunk_id`, `doc_id`, `chunk_index`, `text`, `metadata_json`, `created_at`  
+- **chunks**: `chunk_id`, `doc_id`, `chunk_index`, `text`, `metadata_json`, `created_at`, `embedding` (BLOB, added by retrieval index)  
 Use [DB Browser for SQLite](https://sqlitebrowser.org/) or any SQL client to inspect `data/processed/chunks.db`.
 
 ### Output format (chunk records)
@@ -50,9 +52,72 @@ Each chunk has: `doc_id` (sha256 of file bytes), `chunk_id`, `text`, and `metada
 
 ---
 
-Next steps after Step 1:
-- embeddings + vector index
-- hybrid retrieval (BM25 + vectors)
+## Embeddings & vector search
+
+Embeddings are stored in the same SQLite DB (`chunks.embedding` BLOB).
+
+**Default: local model** (`sentence-transformers/all-MiniLM-L6-v2`) via `sentence-transformers` — no API key, runs on CPU.
+
+### Setup
+1. Install deps: `pip install -r requirements.txt` (includes `sentence-transformers`, `python-dotenv`)
+2. (Optional) Use another model: set in `.env`: `EMBEDDING_MODEL=thenlper/gte-small`
+3. (Optional) Use Hugging Face Inference API instead of local: set `EMBEDDING_BACKEND=huggingface` and `HF_TOKEN=hf_xxxx` in `.env`
+
+### Index (embed all chunks)
+Run once after ingestion, or after adding new documents:
+
+```powershell
+python .\retrieval.py index --db data\processed\chunks.db
+```
+
+To set batch size (default - 32)
+
+```powershell
+python .\retrieval.py index --db data\processed\chunks.db --batch-size 8
+```
+
+### Search
+By default search uses **hybrid** mode (semantic + BM25):
+
+```powershell
+python .\retrieval.py search --db data\processed\chunks.db --query "What is gravitational redshift?" --top-k 5
+```
+
+Other modes:
+
+```powershell
+# Semantic-only:
+python .\retrieval.py search --db data\processed\chunks.db -q "black holes" --top-k 3 --mode semantic
+
+# Lexical-only (BM25):
+python .\retrieval.py search --db data\processed\chunks.db -q "black holes" --top-k 3 --mode lexical
+
+# Hybrid with custom semantic weight (alpha):
+python .\retrieval.py search --db data\processed\chunks.db -q "black holes" --top-k 3 --mode hybrid --alpha 0.7
+
+# JSON output:
+python .\retrieval.py search --db data\processed\chunks.db -q "black holes" --top-k 3 --json
+```
+
+---
+
+Note: BM25 is cached **within the running Python process**. The CLI runs one query per process, so caching matters most once we wire retrieval into a long-running agent/service.
+
+---
+
+### Retrieval REPL (interactive, uses cache)
+
+For quick experiments in one process (sharing BM25 cache and the local embedder):
+
+```powershell
+python .\retrieval.py repl --db data\processed\chunks.db --mode hybrid --top-k 3
+```
+
+Then type queries at the `query>` prompt. Use `--mode semantic` or `--mode lexical` to compare behaviors.
+
+---
+
+Next steps:
 - multi-agent orchestration (retriever/answerer/verifier)
 
 ## Query routing (intents)
