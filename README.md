@@ -120,6 +120,26 @@ Then type queries at the `query>` prompt. Use `--mode semantic` or `--mode lexic
 Next steps:
 - multi-agent orchestration (retriever/answerer/verifier)
 
+## Question Answering (DOCUMENT_SEARCH, Gemini-based)
+
+High-level flow:
+- Retriever agent selects top-k context chunks from the SQLite store (semantic / lexical / hybrid).
+- Answer agent (Gemini) generates an answer grounded in those chunks, with inline citations like `[1]`, `[2]`.
+
+### Setup
+1. Create a Gemini API key and add it to `.env`:
+   - `GEMINI_API_KEY=your_key_here`
+2. Install deps (as before): `pip install -r requirements.txt`
+
+### Run QA pipeline
+```powershell
+python .\qa.py --db data\processed\chunks.db --query "What is gravitational redshift?" --top-k 6 --mode hybrid
+```
+
+- `--top-k`: number of context chunks retrieved.
+- `--mode`: retriever mode (`semantic`, `lexical`, or `hybrid`).
+- `--json`: print full JSON (answer, citations, context).
+
 ## Query routing (intents)
 
 The router classifies a user query into **exactly one** label:

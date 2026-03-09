@@ -1,3 +1,5 @@
+# Core retriever logic for semantic / lexical / hybrid search over chunks.
+
 from __future__ import annotations
 
 from dataclasses import dataclass
