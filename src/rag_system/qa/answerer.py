@@ -58,7 +58,7 @@ class AnswerWithCitations:
 class AnswerConfig:
     model: str = GEMINI_DEFAULT_MODEL
     temperature: float = 0.2
-    max_output_tokens: int = 512
+    max_output_tokens: int = 1024
 
 
 # --------- #
@@ -78,7 +78,7 @@ def _call_gemini(
     prompt: str,
     *,
     config: Optional[AnswerConfig] = None,
-) -> str:
+) -> tuple[str, Optional[str]]:
     cfg = config or AnswerConfig()
     api_key = _get_gemini_api_key()
 
@@ -126,12 +126,13 @@ def _call_gemini(
         raise RuntimeError(f"Gemini API returned non-JSON response: {raw!r}")
 
     # Expected shape:
-    # { "candidates": [ { "content": { "parts": [ { "text": "..."}, ... ] } } ] }
+    # { "candidates": [ { "content": { "parts": [ { "text": "..."}, ... ] }, "finishReason": "..." } ] }
     cands = payload.get("candidates") or []
     if not cands:
         raise RuntimeError(f"Gemini API returned no candidates: {payload!r}")
 
     parts = (cands[0].get("content") or {}).get("parts") or []
+    finish_reason = cands[0].get("finishReason")
     texts: List[str] = []
     for p in parts:
         t = p.get("text")
@@ -139,7 +140,17 @@ def _call_gemini(
             texts.append(t)
     if not texts:
         raise RuntimeError(f"Gemini API candidate had no text parts: {payload!r}")
-    return "".join(texts).strip()
+    return "".join(texts).strip(), finish_reason
+
+
+def _looks_truncated(text: str) -> bool:
+    """
+    Heuristic: if output doesn't end with a sentence terminator, it may be cut off.
+    """
+    s = (text or "").strip()
+    if not s:
+        return False
+    return s[-1] not in {".", "?", "!", "\"", "”", "’", "]", ")", ":"}
 
 
 _CIT_LABEL_RE = re.compile(r"\[(\d+)\]")
@@ -165,6 +176,7 @@ def _build_prompt(query: str, chunks: Sequence[Dict[str, Any]]) -> str:
     lines.append(
         "Do not include a bibliography section; just use inline citations inside the answer."
     )
+    lines.append("Write complete sentences. Do not stop mid-sentence.")
     lines.append("")
     lines.append("Context chunks:")
     for idx, c in enumerate(chunks, start=1):
@@ -236,7 +248,29 @@ def answer_question(
         raise ValueError("answer_question called with no context chunks.")
 
     prompt = _build_prompt(query, chunks)
-    answer = _call_gemini(prompt, config=config)
+    answer, finish = _call_gemini(prompt, config=config)
+
+    # If the model stops mid-sentence, ask for a continuation (bounded retries).
+    # This improves reliability for occasional early cutoffs.
+    if _looks_truncated(answer):
+        for _ in range(2):
+            cont_prompt = (
+                prompt
+                + "\n\nThe previous answer was cut off. Continue from the last word without repeating. "
+                + "Make sure to finish the thought and keep using inline citations like [1].\n\n"
+                + "Previous answer:\n"
+                + answer
+                + "\n\nContinuation:"
+            )
+            more, _ = _call_gemini(cont_prompt, config=config)
+            more = (more or "").strip()
+            if not more:
+                break
+            # Avoid accidental duplication if model repeats the tail.
+            answer = (answer.rstrip() + " " + more.lstrip()).strip()
+            if not _looks_truncated(answer):
+                break
+
     citations = _extract_citations(answer, chunks)
     return AnswerWithCitations(answer=answer, citations=citations)
 
