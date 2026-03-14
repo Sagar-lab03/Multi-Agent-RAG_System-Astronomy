@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 from .embedding import get_embedder
+from .retriever import RetrieverConfig, retrieve_context
 from .search import hybrid_search, lexical_search, semantic_search
 
 
@@ -157,6 +158,42 @@ def cmd_repl(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_context(args: argparse.Namespace) -> int:
+    """
+    One-shot retriever call: show the chunks that the retriever agent would use
+    for a given query (mode + top_k + alpha).
+    """
+    conn = _get_conn(Path(args.db))
+    cfg = RetrieverConfig(mode=args.mode, top_k=args.top_k, alpha=args.alpha)
+    try:
+        results = retrieve_context(conn, args.query, cfg)
+    except Exception as e:
+        print(f"[ERROR] {e}", file=sys.stderr)
+        conn.close()
+        return 2
+    conn.close()
+
+    if args.json:
+        print(json.dumps(results, ensure_ascii=False, indent=2))
+        return 0
+
+    for i, r in enumerate(results, 1):
+        meta = r.get("metadata", {}) or {}
+        page = meta.get("page")
+        src = r.get("doc_source", "")
+        score = r.get("score", 0.0)
+        header = f"\n--- Context {i} (mode={args.mode}, score={score:.4f}) ---"
+        if src:
+            header += f"\nsource: {src}"
+        if page is not None:
+            header += f" (page {page})"
+        print(header)
+        print(r.get("text", "")[:800])
+        if len(r.get("text", "")) > 800:
+            print("...")
+    return 0
+
+
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="Retrieval: index embeddings and search.")
     sub = ap.add_subparsers(dest="command", required=True)
@@ -199,6 +236,27 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Hybrid weight for semantic score (0-1). Used only in hybrid mode.",
     )
     repl.set_defaults(func=cmd_repl)
+
+    ctx = sub.add_parser(
+        "context", help="Show retriever-selected context chunks for a query."
+    )
+    ctx.add_argument("--db", required=True, help="SQLite chunk store path.")
+    ctx.add_argument("--query", "-q", required=True, help="Query to retrieve for.")
+    ctx.add_argument("--top-k", type=int, default=6, help="Number of chunks to retrieve.")
+    ctx.add_argument(
+        "--mode",
+        choices=["semantic", "lexical", "hybrid"],
+        default="hybrid",
+        help="Retriever mode. Default: hybrid.",
+    )
+    ctx.add_argument(
+        "--alpha",
+        type=float,
+        default=0.6,
+        help="Hybrid weight for semantic score (0-1). Used only in hybrid mode.",
+    )
+    ctx.add_argument("--json", action="store_true", help="Output full JSON.")
+    ctx.set_defaults(func=cmd_context)
     return ap.parse_args(argv)
 
 
