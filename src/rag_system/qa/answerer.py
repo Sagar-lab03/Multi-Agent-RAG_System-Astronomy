@@ -248,8 +248,8 @@ def answer_question(
         raise ValueError("answer_question called with no context chunks.")
 
     prompt = _build_prompt(query, chunks)
-    answer, finish = _call_gemini(prompt, config=config)
-
+    answer, finish = _call_gemini(prompt, config=config)       
+      
     # If the model stops mid-sentence, ask for a continuation (bounded retries).
     # This improves reliability for occasional early cutoffs.
     if _looks_truncated(answer):
