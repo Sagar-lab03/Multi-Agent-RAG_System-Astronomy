@@ -47,7 +47,11 @@ data/processed/*.db
 data/processed/*.jsonl
 
 # Raw data folder should be ignored 
-data/raw/*
+data/raw/*.pdf
+data/raw/*.docx
+data/raw/*.txt
+data/raw/*.csv
+data/raw/*.md
 
 # todo list for my personal use
 todo_tasks.txt
