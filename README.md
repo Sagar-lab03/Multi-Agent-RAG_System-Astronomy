@@ -1,8 +1,10 @@
-# Production-Grade Multi-Agent RAG System (Step-by-step)
+# Production-Grade Multi-Agent RAG System 
 
-This repository is built **step-by-step** to develop a production-thinking, debuggable RAG system.
+AI-driven astronomy research framework that uses multiple collaborative agents with Retrieval-Augmented Generation (RAG) to gather, analyze, and synthesize astronomical data and knowledge efficiently.
 
-## Step 1 (current): Document ingestion & chunking
+![Astronomy Agentic RAG System](src/images/Astronomy_Agentic_RAG.png)
+
+## Step 1: Document ingestion & chunking
 
 ### What you get
 - **Loaders** for `.txt/.md`, `.html/.htm`, `.pdf`
@@ -52,7 +54,7 @@ Each chunk has: `doc_id` (sha256 of file bytes), `chunk_id`, `text`, and `metada
 
 ---
 
-## Embeddings & vector search
+## Step 2: Embeddings & vector search
 
 Embeddings are stored in the same SQLite DB (`chunks.embedding` BLOB).
 
@@ -120,7 +122,7 @@ Then type queries at the `query>` prompt. Use `--mode semantic` or `--mode lexic
 Next steps:
 - multi-agent orchestration (retriever/answerer/verifier)
 
-## Question Answering (DOCUMENT_SEARCH, Gemini-based)
+## Step 3: Question Answering (DOCUMENT_SEARCH, Gemini-based)
 
 High-level flow:
 - Retriever agent selects top-k context chunks from the SQLite store (semantic / lexical / hybrid).
@@ -155,7 +157,7 @@ This prints:
   - `complete`: whether major parts of the question were addressed,
   - `issues`: a list of flagged problems (unsupported claims, missing coverage), each with an explanation and any citation labels mentioned.
 
-## Query routing (intents)
+## Step 4: Query routing (intents)
 
 The router classifies a user query into **exactly one** label:
 `DOCUMENT_SEARCH`, `APOD`, `NEO`, `DONKI`, `EONET`, or `UNKNOWN`.
