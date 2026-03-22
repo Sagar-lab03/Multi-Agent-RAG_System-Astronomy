@@ -84,10 +84,13 @@ def cmd_answer(args: argparse.Namespace) -> int:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
 
-    print(f"Q: {args.query}\n")
+    print("========================================================\n")
+    print(f"Question: {args.query}\n")
+    print("========================================================\n")
     print("Answer:\n")
     print(result.answer)
-    print("\nSources:")
+    print("========================================================\n")
+    print("Sources:")
     if not result.citations:
         print("  (no citations detected in answer)")
     else:
