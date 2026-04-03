@@ -55,3 +55,6 @@ data/raw/*.md
 
 # todo list for my personal use
 todo_tasks.txt
+
+# Files/folders to ignore
+Files/
