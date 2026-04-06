@@ -2,3 +2,4 @@ pypdf==6.6.0
 beautifulsoup4==4.14.3
 python-dotenv==1.0.1
 sentence-transformers>=2.5.0
+streamlit>=1.28.0

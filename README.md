@@ -157,6 +157,16 @@ This prints:
   - `complete`: whether major parts of the question were addressed,
   - `issues`: a list of flagged problems (unsupported claims, missing coverage), each with an explanation and any citation labels mentioned.
 
+### Streamlit debug UI
+
+The UI lives in the top-level `ui/` folder (separate from `src/rag_system`). From the repo root, with `GEMINI_API_KEY` in `.env` and dependencies installed:
+
+```powershell
+streamlit run ui/streamlit_app.py
+```
+
+Use the sidebar for DB path, retriever mode, top-k, hybrid α, and optional verification. The main area shows the answer, sources, verification summary, and an expander with retrieved chunk text.
+
 ## Step 4: Query routing (intents)
 
 The router classifies a user query into **exactly one** label:
