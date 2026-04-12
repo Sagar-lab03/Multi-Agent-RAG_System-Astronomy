@@ -16,11 +16,13 @@ AI-driven astronomy research framework that uses multiple collaborative agents w
 data/
   raw/            # put your source docs here (pdf/html/txt/md)
   processed/      # chunks.db (SQLite) and optionally chunks.jsonl
+ui/               # Streamlit debug UI
 src/
   rag_system/
     ingest/       # loaders, chunking, SQLite store
     retrieval/    # embeddings (HF API), vector search
     routing/      # query intent router
+    orchestration/  # route → dispatch → RAG (or branch message)
 ```
 
 ### Setup (Windows / PowerShell)
@@ -103,7 +105,7 @@ python .\retrieval.py search --db data\processed\chunks.db -q "black holes" --to
 
 ---
 
-Note: BM25 is cached **within the running Python process**. The CLI runs one query per process, so caching matters most once we wire retrieval into a long-running agent/service.
+Note: BM25 is cached **within the running Python process**. The CLI runs one query per process; **Streamlit** and **`orchestrate.py`** keep a single process alive, so the cache is reused across queries.
 
 ---
 
@@ -118,9 +120,6 @@ python .\retrieval.py repl --db data\processed\chunks.db --mode hybrid --top-k 3
 Then type queries at the `query>` prompt. Use `--mode semantic` or `--mode lexical` to compare behaviors.
 
 ---
-
-Next steps:
-- multi-agent orchestration (retriever/answerer/verifier)
 
 ## Step 3: Question Answering (DOCUMENT_SEARCH, Gemini-based)
 
@@ -165,12 +164,14 @@ The UI lives in the top-level `ui/` folder (separate from `src/rag_system`). Fro
 streamlit run ui/streamlit_app.py
 ```
 
-Use the sidebar for DB path, retriever mode, top-k, hybrid α, and optional verification. The main area shows the answer, sources, verification summary, and an expander with retrieved chunk text.
+Use the sidebar for DB path, **Use router** (multi-agent path), retriever mode, top-k, hybrid α, and optional verification. The main area shows intent/dispatch when routing is on, then the answer, sources, verification, and chunk text.
 
 ## Step 4: Query routing (intents)
 
 The router classifies a user query into **exactly one** label:
 `DOCUMENT_SEARCH`, `APOD`, `NEO`, `DONKI`, `EONET`, or `UNKNOWN`.
+
+**Defaults (RAG-first):** the rule router applies a small **document prior** so generic questions lean toward `DOCUMENT_SEARCH`, expands concept phrases (e.g. “how do”, “what are”), and breaks ties in favor of API intents when scores match. **Comparison-style** questions (“difference between …”, “compare …”, “X vs Y”) are sent to **`DOCUMENT_SEARCH`** unless the query clearly names a NASA **service** (`neo`, `apod`, `donki`, `eonet`, or phrases like “near earth object”) — so a lone taxonomy word such as “asteroid” does not override your corpus. If the rule phase still yields **`UNKNOWN`** and **LLM fallback is disabled**, `ConstrainedRouter` returns **`DOCUMENT_SEARCH`**. Tune `RouterConfig` in `routing/router.py` (`demote_api_on_comparison_without_service_token`, priors, margins).
 
 ### Run routing (label-only stdout)
 ```powershell
@@ -181,4 +182,17 @@ python .\route.py "show today's astronomy picture"
 ```powershell
 python .\route.py "asteroids approaching earth this week" --debug
 ```
+
+## Step 5: Orchestrated pipeline (router + dispatch + RAG)
+
+End-to-end path: **classify** the query → **dispatch** (RAG vs future NASA API branch) → for `DOCUMENT_SEARCH`, run the same retriever + answerer (+ optional verifier) as `qa.py`. Other intents today return a short message (live APIs not wired yet).
+
+```powershell
+python .\orchestrate.py --db data\processed\chunks.db --query "What is gravitational redshift?" --mode hybrid --verify
+```
+
+- `--no-route`: skip the router and always run document RAG (equivalent to `qa.py`).
+- `--debug`: print rule-router scores to stderr (same spirit as `route.py --debug`).
+- `--llm-route`: if rules yield `UNKNOWN`, try the optional **OpenAI-compatible** LLM router (`ROUTER_LLM_MODEL`, `ROUTER_LLM_BASE_URL`, `ROUTER_LLM_API_KEY`; see `routing/router.py`).
+- `--json`: structured output including `intent`, `dispatch`, optional `route_trace`, and RAG fields when applicable.
 

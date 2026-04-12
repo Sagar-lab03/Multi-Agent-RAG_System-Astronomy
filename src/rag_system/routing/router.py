@@ -16,7 +16,7 @@
 # 3) ConstrainedRouter (primary router - the “production” wrapper)
 # Combines rule-based + prompt-based (if enabled)
 # Only calls LLM if rule-based is UNKNOWN AND enabled
-# Returns canonicalized label or UNKNOWN
+# Returns canonicalized label; UNKNOWN from rules + LLM off → DOCUMENT_SEARCH
 
 from __future__ import annotations
 
@@ -25,13 +25,17 @@ import os
 import re
 import sys
 import urllib.request
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Dict, FrozenSet, List, Optional, Tuple
 
 from .intents import (
     ALL_INTENTS,
+    APOD,
     API_INTENTS,
     DOCUMENT_SEARCH,
+    DONKI,
+    EONET,
+    NEO,
     UNKNOWN,
     canonicalize_intent,
 )
@@ -85,8 +89,11 @@ DATA_SIGNAL_PHRASES = [
 
 CONCEPT_SIGNAL_PHRASES = [
     "what is",
+    "what are",
     "explain",
     "how does",
+    "how do",
+    "how can",
     "why",
     "difference between",
     "compare",
@@ -95,7 +102,64 @@ CONCEPT_SIGNAL_PHRASES = [
     "causes",
     "meaning of",
     "derive",
+    "tell me about",
+    "tell me",
+    "describe",
+    "summarize",
+    "overview",
 ]
+
+# Explanatory / contrast phrasing: generic taxonomy hits (e.g. "asteroid") must not beat documents.
+_COMPARISON_MARKERS = (
+    "difference between",
+    "what is the difference",
+    "what are the differences",
+    "compared to",
+    "compare",
+    " versus ",
+)
+_VS_WORD = re.compile(r"\bvs\b")
+
+# Normalized phrases or label tokens that show the user meant this NASA *service*, not a textbook word.
+_API_SERVICE_EVIDENCE: Dict[str, FrozenSet[str]] = {
+    NEO: frozenset(
+        {
+            "neo",
+            "near earth object",
+            "near-earth object",
+            "nasa neo",
+        }
+    ),
+    APOD: frozenset(
+        {
+            "apod",
+            "astronomy picture of the day",
+        }
+    ),
+    DONKI: frozenset({"donki", "space weather database"}),
+    EONET: frozenset({"eonet", "earth observatory natural event"}),
+}
+
+
+def _looks_like_explanatory_comparison(nq: str) -> bool:
+    if any(m in nq for m in _COMPARISON_MARKERS):
+        return True
+    if _VS_WORD.search(nq):
+        return True
+    return False
+
+
+def _explicit_api_service_request(nq: str, api_label: str, matched_kws: List[str]) -> bool:
+    """True only if the query clearly names the API/tool, not just a related science term."""
+    token = api_label.strip().lower()
+    if token and re.search(rf"\b{re.escape(token)}\b", nq):
+        return True
+    allowed = _API_SERVICE_EVIDENCE.get(api_label, frozenset())
+    for raw in matched_kws:
+        nk = _normalize(raw)
+        if nk in allowed:
+            return True
+    return False
 
 
 @dataclass(frozen=True)
@@ -112,18 +176,33 @@ class RouteTrace:
     decision: str
 
 
+def _intent_score_tie_break(label: str) -> int:
+    """Higher value wins when scores are tied (prefer specific API over generic doc)."""
+    if label in API_INTENTS:
+        return 3
+    if label == DOCUMENT_SEARCH:
+        return 2
+    return 0
+
+
 @dataclass
 class RouterConfig:
-    # Minimum score needed to choose a non-UNKNOWN label
-    min_score: float = 2.0
-    # If top two scores are too close, treat as ambiguous
-    min_margin: float = 1.0
+    # Soft bias toward indexed documents every query (RAG-first product).
+    document_search_prior: float = 1.0
+    # Minimum score for the winning label to be accepted (UNKNOWN otherwise, unless branches below).
+    min_score: float = 1.0
+    # If top two scores are too close, treat as ambiguous (then use tie / concept / doc-top rules).
+    min_margin: float = 0.5
     # Bonus for data-seeking queries ("today", "latest", "show", ...)
     data_bonus: float = 0.75
     # Bonus for conceptual queries ("what is", "explain", ...)
     concept_bonus: float = 0.75
     # If query strongly looks conceptual, prefer document search over UNKNOWN
     prefer_document_on_concept: bool = True
+    # If the top-scoring label is DOCUMENT_SEARCH but the margin check failed, still pick documents.
+    prefer_document_when_top: bool = True
+    # "Difference between X and Y" / "compare …" → DOCUMENT_SEARCH unless the query names the API (neo, apod, …).
+    demote_api_on_comparison_without_service_token: bool = True
 
 
 class RuleBasedRouter:
@@ -175,22 +254,45 @@ class RuleBasedRouter:
         if concept_hits:
             scores[DOCUMENT_SEARCH] += self.config.concept_bonus
 
-        # Pick best label
-        ordered = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+        scores[DOCUMENT_SEARCH] += self.config.document_search_prior
+
+        # Pick best label (score desc, then API > DOCUMENT_SEARCH > UNKNOWN on ties).
+        ordered = sorted(
+            scores.items(),
+            key=lambda kv: (kv[1], _intent_score_tie_break(kv[0])),
+            reverse=True,
+        )
         best_label, best_score = ordered[0]
         second_score = ordered[1][1] if len(ordered) > 1 else -1.0
+        margin = best_score - second_score
+
+        # Only treat as ambiguous when second place is *strictly* behind but within margin.
+        # margin == 0 (true tie, e.g. doc prior 1.0 vs APOD keyword 1.0): sort order already
+        # prefers API over DOCUMENT_SEARCH — must not fall through to UNKNOWN.
+        ambiguous = (margin > 0) and (margin < self.config.min_margin)
 
         decision = UNKNOWN
 
-        ambiguous = (best_score - second_score) < self.config.min_margin
         if best_score >= self.config.min_score and not ambiguous:
             decision = best_label
+        elif best_score >= self.config.min_score and ambiguous and best_label in API_INTENTS:
+            # Narrow lead but still an API keyword path — prefer API over UNKNOWN.
+            decision = best_label
         else:
-            # Safe fallback behavior
             if self.config.prefer_document_on_concept and concept_hits:
+                decision = DOCUMENT_SEARCH
+            elif self.config.prefer_document_when_top and best_label == DOCUMENT_SEARCH:
                 decision = DOCUMENT_SEARCH
             else:
                 decision = UNKNOWN
+
+        if (
+            self.config.demote_api_on_comparison_without_service_token
+            and decision in API_INTENTS
+            and _looks_like_explanatory_comparison(nq)
+            and not _explicit_api_service_request(nq, decision, matched.get(decision, []))
+        ):
+            decision = DOCUMENT_SEARCH
 
         trace = RouteTrace(
             normalized_query=nq,
@@ -303,7 +405,7 @@ class ConstrainedRouter:
     """
     Primary router:
     - Deterministic rule-based routing first
-    - Optional prompt-based routing only if enabled AND rule-based is UNKNOWN
+    - If rules yield UNKNOWN: optional LLM router when enabled, else DOCUMENT_SEARCH (RAG default)
     """
 
     def __init__(
@@ -322,18 +424,20 @@ class ConstrainedRouter:
             # Lazy init on first need to avoid env-var requirements in default flow.
             self._llm = None
 
-    def route(self, query: str) -> str:
-        label = self.rule.route(query)
-        if label != UNKNOWN:
-            return label
-        if not self.enable_llm_fallback:
-            return UNKNOWN
-
-        if self._llm is None:
-            self._llm = PromptRouter(specs=self.specs)
-        return canonicalize_intent(self._llm.route(query))
-
     def route_with_trace(self, query: str) -> Tuple[str, RouteTrace]:
-        # Trace is from deterministic phase (LLM fallback is intentionally not traced here).
-        return self.rule.route_with_trace(query)
+        """
+        Returns (final_intent, rule_phase_trace). Trace.decision is the rule-only outcome;
+        final_intent may be DOCUMENT_SEARCH when rules were UNKNOWN and LLM fallback is off.
+        """
+        rule_label, trace = self.rule.route_with_trace(query)
+        if rule_label != UNKNOWN:
+            return rule_label, trace
+        if self.enable_llm_fallback:
+            if self._llm is None:
+                self._llm = PromptRouter(specs=self.specs)
+            return canonicalize_intent(self._llm.route(query)), trace
+        return DOCUMENT_SEARCH, trace
+
+    def route(self, query: str) -> str:
+        return self.route_with_trace(query)[0]
 
