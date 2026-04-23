@@ -27,7 +27,7 @@ import streamlit as st
 
 from rag_system.orchestration import OrchestrationResult, run_orchestrated_query
 from rag_system.retrieval import RetrieverConfig
-from rag_system.routing.intents import API_INTENTS, DOCUMENT_SEARCH, UNKNOWN
+from rag_system.routing.intents import APOD, API_INTENTS, DOCUMENT_SEARCH, UNKNOWN
 from rag_system.routing.router import RouteTrace
 
 
@@ -97,12 +97,43 @@ def _render_router_panel(
         st.caption("No route trace available.")
 
 
+def _render_apod_card(payload: Dict[str, object]) -> None:
+    st.subheader("APOD")
+    title = str(payload.get("title") or "(untitled)")
+    date = str(payload.get("date") or "")
+    media_type = str(payload.get("media_type") or "")
+    image_url = str(payload.get("url") or "")
+    hd_url = str(payload.get("hdurl") or "")
+    explanation = str(payload.get("explanation") or "")
+
+    st.markdown(f"### {title}")
+    if date:
+        st.caption(f"Date: {date}")
+    if media_type:
+        st.caption(f"Media type: {media_type}")
+
+    if media_type == "image" and image_url:
+        st.image(image_url, caption=title, use_container_width=True)
+    elif media_type == "video" and image_url:
+        st.video(image_url)
+    elif image_url:
+        st.markdown(f"[Open media URL]({image_url})")
+
+    if explanation:
+        st.markdown(explanation)
+
+    if hd_url:
+        st.markdown(f"[HD image]({hd_url})")
+    if image_url and image_url != hd_url:
+        st.markdown(f"[Media URL]({image_url})")
+
+
 def main() -> None:
     st.set_page_config(page_title="RAG QA (debug)", layout="wide")
     st.title("Multi-Agent RAG — QA debug console")
     st.caption(
         "Optional router → dispatch → DOCUMENT_SEARCH uses hybrid/semantic/lexical retrieval + Gemini + "
-        "optional verifier. NASA API intents are detected but not called yet."
+        "optional verifier. APOD is live; other NASA API intents are currently placeholders."
     )
 
     with st.sidebar:
@@ -166,6 +197,10 @@ def main() -> None:
                 for c in orch.context:
                     st.text((c.get("text") or "")[:1500])
                     st.divider()
+        return
+
+    if orch.intent == APOD and orch.api_payload is not None:
+        _render_apod_card(orch.api_payload)
         return
 
     assert orch.answer is not None

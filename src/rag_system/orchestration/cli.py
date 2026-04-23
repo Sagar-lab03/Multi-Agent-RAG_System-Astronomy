@@ -43,6 +43,8 @@ def _result_to_json_payload(r: OrchestrationResult) -> Dict[str, Any]:
             "is_complete": r.verification.is_complete,
             "issues": [asdict(i) for i in r.verification.issues],
         }
+    if r.api_payload is not None:
+        payload["api_payload"] = r.api_payload
     return payload
 
 
@@ -84,6 +86,11 @@ def cmd_run(args: argparse.Namespace) -> int:
     if result.error:
         print(f"\n[ERROR] {result.error}", file=sys.stderr)
         return 2
+
+    if result.api_payload is not None:
+        print("\nAPI payload:")
+        print(json.dumps(result.api_payload, ensure_ascii=False, indent=2))
+        return 0
 
     assert result.answer is not None
     print("\n========================================================\n")
