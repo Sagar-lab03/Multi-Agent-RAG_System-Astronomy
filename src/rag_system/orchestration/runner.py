@@ -7,12 +7,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from rag_system.apis import extract_date_from_query, fetch_apod
 from rag_system.ingest.store import get_connection, init_schema
 from rag_system.qa.answerer import AnswerConfig, AnswerWithCitations, answer_question
 from rag_system.qa.verifier import VerificationResult, verify_answer
 from rag_system.retrieval import RetrieverConfig, retrieve_context
 from rag_system.routing.dispatch import DispatchPlan, build_dispatch_plan
-from rag_system.routing.intents import API_INTENTS, DOCUMENT_SEARCH, UNKNOWN
+from rag_system.routing.intents import APOD, API_INTENTS, DOCUMENT_SEARCH, UNKNOWN
 from rag_system.routing.router import ConstrainedRouter, RouteTrace, RouterConfig
 
 
@@ -27,6 +28,7 @@ class OrchestrationResult:
     context: Optional[List[Dict[str, Any]]]
     answer: Optional[AnswerWithCitations]
     verification: Optional[VerificationResult]
+    api_payload: Optional[Dict[str, Any]]
     error: Optional[str]
 
 
@@ -72,6 +74,34 @@ def run_orchestrated_query(
 
     plan = build_dispatch_plan(intent)
 
+    if intent == APOD:
+        try:
+            q_date = extract_date_from_query(q)
+            apod_payload = fetch_apod(date=q_date)
+        except Exception as e:
+            return OrchestrationResult(
+                intent=intent,
+                plan=plan,
+                trace=trace,
+                note=None,
+                context=None,
+                answer=None,
+                verification=None,
+                api_payload=None,
+                error=f"APOD request failed: {e}",
+            )
+        return OrchestrationResult(
+            intent=intent,
+            plan=plan,
+            trace=trace,
+            note=None,
+            context=None,
+            answer=None,
+            verification=None,
+            api_payload=apod_payload,
+            error=None,
+        )
+
     if intent != DOCUMENT_SEARCH:
         return OrchestrationResult(
             intent=intent,
@@ -81,6 +111,7 @@ def run_orchestrated_query(
             context=None,
             answer=None,
             verification=None,
+            api_payload=None,
             error=None,
         )
 
@@ -98,6 +129,7 @@ def run_orchestrated_query(
             context=None,
             answer=None,
             verification=None,
+            api_payload=None,
             error=f"Retrieval failed: {e}",
         )
     conn.close()
@@ -111,6 +143,7 @@ def run_orchestrated_query(
             context=[],
             answer=None,
             verification=None,
+            api_payload=None,
             error="No context chunks retrieved. Run ingest and retrieval index first.",
         )
 
@@ -125,6 +158,7 @@ def run_orchestrated_query(
             context=context,
             answer=None,
             verification=None,
+            api_payload=None,
             error=f"Answer generation failed: {e}",
         )
 
@@ -144,6 +178,7 @@ def run_orchestrated_query(
         context=context,
         answer=result,
         verification=ver,
+        api_payload=None,
         error=None,
     )
 

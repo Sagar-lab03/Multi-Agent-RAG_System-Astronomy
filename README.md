@@ -183,9 +183,12 @@ python .\route.py "show today's astronomy picture"
 python .\route.py "asteroids approaching earth this week" --debug
 ```
 
-## Step 5: Orchestrated pipeline (router + dispatch + RAG)
+## Step 5: Orchestrated pipeline (router + dispatch + RAG/API)
 
-End-to-end path: **classify** the query → **dispatch** (RAG vs future NASA API branch) → for `DOCUMENT_SEARCH`, run the same retriever + answerer (+ optional verifier) as `qa.py`. Other intents today return a short message (live APIs not wired yet).
+End-to-end path: **classify** the query → **dispatch**.  
+- `DOCUMENT_SEARCH`: same retriever + answerer (+ optional verifier) as `qa.py`.
+- `APOD`: calls NASA APOD API directly and returns the API JSON payload.
+- Other API intents (`NEO`, `DONKI`, `EONET`) currently return a short "not implemented yet" message.
 
 ```powershell
 python .\orchestrate.py --db data\processed\chunks.db --query "What is gravitational redshift?" --mode hybrid --verify
@@ -194,5 +197,10 @@ python .\orchestrate.py --db data\processed\chunks.db --query "What is gravitati
 - `--no-route`: skip the router and always run document RAG (equivalent to `qa.py`).
 - `--debug`: print rule-router scores to stderr (same spirit as `route.py --debug`).
 - `--llm-route`: if rules yield `UNKNOWN`, try the optional **OpenAI-compatible** LLM router (`ROUTER_LLM_MODEL`, `ROUTER_LLM_BASE_URL`, `ROUTER_LLM_API_KEY`; see `routing/router.py`).
-- `--json`: structured output including `intent`, `dispatch`, optional `route_trace`, and RAG fields when applicable.
+- `--json`: structured output including `intent`, `dispatch`, optional `route_trace`, and either RAG fields or `api_payload` (for APOD).
+
+APOD notes:
+- Uses `NASA_API_KEY` from `.env`.
+- If query includes an ISO date (`YYYY-MM-DD`), that is passed as `date=...`; otherwise APOD defaults to today's item.
+- Streamlit UI renders APOD in a card with **title + image/video + explanation**.
 
