@@ -147,6 +147,11 @@ def main() -> None:
             disabled=not use_router,
             help="OpenAI-compatible chat/completions endpoint (ROUTER_LLM_* env vars).",
         )
+        show_router_panel = st.checkbox(
+            "Show router debug section",
+            value=True,
+            help="If off, hides router/dispatch debug details from the main UI.",
+        )
         mode = st.selectbox("Retriever mode", ["hybrid", "semantic", "lexical"], index=0)
         top_k = st.number_input("Top-k chunks", min_value=1, max_value=30, value=6)
         alpha = st.slider("Hybrid α (semantic weight)", 0.0, 1.0, 0.6, 0.05)
@@ -180,7 +185,9 @@ def main() -> None:
             llm_router_fallback=llm_route and use_router,
         )
 
-    _render_router_panel(use_router, orch, llm_router_fallback_enabled=llm_route and use_router)
+    if show_router_panel:
+        with st.expander("Router details", expanded=False):
+            _render_router_panel(use_router, orch, llm_router_fallback_enabled=llm_route and use_router)
 
     if orch.note:
         if orch.intent in API_INTENTS:

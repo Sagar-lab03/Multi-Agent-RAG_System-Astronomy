@@ -70,11 +70,12 @@ def default_intent_specs() -> Dict[str, IntentSpec]:
                 "image of the day",
                 "nasa photo of the day",
                 "daily astronomy image",
-                "today's apod",
+                "today's picture",
                 "space photo", 
                 "nasa image", 
                 "today's space picture",
                 "astronomy photo",
+                "astronomy picture",
             ],
         ),
         NEO: IntentSpec(
