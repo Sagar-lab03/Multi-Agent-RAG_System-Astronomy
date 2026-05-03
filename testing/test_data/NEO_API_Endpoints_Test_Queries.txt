@@ -1,0 +1,172 @@
+# 🧪 1. `neo_lookup` (should trigger ONLY when ID is present)
+
+### ✅ Clear lookup queries
+
+```text
+tell me about asteroid 3542519
+asteroid details for 3729835
+info about asteroid 2000433
+what is asteroid 54016456
+give details of 1234567
+```
+
+### ✅ Minimal / raw queries
+
+```text
+3542519
+asteroid 9876543
+neo 12345678
+```
+
+### ⚠️ Edge cases (important)
+
+```text
+tell me about asteroid 3542519 near earth
+details of asteroid 3542519 today
+what is 433 eros 3542519
+```
+
+👉 Expected: **neo_lookup** (ID should dominate everything)
+
+---
+
+# 🧪 2. `neo_browse` (pagination / dataset navigation)
+
+### ✅ Clear browse queries
+
+```text
+browse asteroids
+asteroid catalog
+show all asteroids
+asteroid database
+```
+
+### ✅ Pagination-driven (strongest signal)
+
+```text
+page 2
+page 5 asteroids
+show page 3
+pg 10
+next page
+previous page
+```
+
+### ⚠️ Edge cases
+
+```text
+browse asteroids this week
+all asteroids today
+catalog of near earth asteroids
+```
+
+👉 Expected behavior (based on improved logic):
+
+* With **date/time context** → should lean **neo_feed**
+* Without → **neo_browse**
+
+---
+
+# 🧪 3. `neo_feed` (time-based / general queries)
+
+### ✅ Clear feed queries
+
+```text
+asteroids today
+near earth objects today
+asteroids this week
+asteroids now
+recent asteroids
+upcoming asteroids
+```
+
+### ✅ Date-based queries
+
+```text
+asteroids on 2025-10-01
+neo data from 2025-09-01 to 2025-09-07
+asteroids on 2026-01-15
+```
+
+### ✅ Natural language time
+
+```text
+asteroids next week
+asteroids coming soon
+objects approaching earth
+asteroids passing by earth
+```
+
+---
+
+# 🧪 4. Conflict / ambiguity tests (VERY important)
+
+These are the ones that reveal if your router is solid:
+
+```text
+list asteroids today
+show asteroids this week
+all asteroids near earth today
+```
+
+👉 Expected: **neo_feed**
+(Not browse — this is where your fix matters)
+
+---
+
+```text
+page 2 asteroids today
+```
+
+👉 Expected: **neo_browse** (pagination wins)
+
+---
+
+```text
+tell me about asteroid today
+```
+
+👉 Expected: **neo_lookup** (phrase-based)
+
+---
+
+```text
+asteroid closest approach today
+```
+
+👉 Expected: **neo_feed**
+
+---
+
+```text
+browse page 2 of asteroids this week
+```
+
+👉 Expected: **neo_browse** (pagination overrides time)
+
+---
+
+# 🧪 5. Default fallback tests
+
+```text
+asteroids
+space rocks near earth
+neo info
+objects in space
+```
+
+👉 Expected: **neo_feed** (default)
+
+---
+
+# 🎯 Quick sanity checklist
+
+When you run tests, verify:
+
+* ✅ ID always → `neo_lookup`
+* ✅ page / pg → `neo_browse`
+* ✅ date / time → `neo_feed`
+* ✅ ambiguous “list” + time → `neo_feed` (important fix)
+* ✅ unknown queries → `neo_feed`
+
+---

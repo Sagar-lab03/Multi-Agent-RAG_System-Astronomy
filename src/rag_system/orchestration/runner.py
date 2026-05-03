@@ -7,13 +7,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from rag_system.apis import extract_date_from_query, fetch_apod
+from rag_system.apis import (
+    extract_asteroid_id_from_query,
+    extract_date_from_query,
+    fetch_and_process_neo_feed,
+    fetch_and_process_neo_lookup,
+    fetch_apod,
+    route_neo_endpoint,
+)
 from rag_system.ingest.store import get_connection, init_schema
 from rag_system.qa.answerer import AnswerConfig, AnswerWithCitations, answer_question
 from rag_system.qa.verifier import VerificationResult, verify_answer
 from rag_system.retrieval import RetrieverConfig, retrieve_context
 from rag_system.routing.dispatch import DispatchPlan, build_dispatch_plan
-from rag_system.routing.intents import APOD, API_INTENTS, DOCUMENT_SEARCH, UNKNOWN
+from rag_system.routing.intents import APOD, API_INTENTS, DOCUMENT_SEARCH, NEO, UNKNOWN
 from rag_system.routing.router import ConstrainedRouter, RouteTrace, RouterConfig
 
 
@@ -99,6 +106,90 @@ def run_orchestrated_query(
             answer=None,
             verification=None,
             api_payload=apod_payload,
+            error=None,
+        )
+
+    if intent == NEO:
+        neo_decision = route_neo_endpoint(q)
+        if neo_decision.endpoint == "neo_feed":
+            try:
+                neo_payload = fetch_and_process_neo_feed(q)
+            except Exception as e:
+                return OrchestrationResult(
+                    intent=intent,
+                    plan=plan,
+                    trace=trace,
+                    note=None,
+                    context=None,
+                    answer=None,
+                    verification=None,
+                    api_payload=None,
+                    error=f"NEO feed request failed: {e}",
+                )
+            return OrchestrationResult(
+                intent=intent,
+                plan=plan,
+                trace=trace,
+                note=None,
+                context=None,
+                answer=None,
+                verification=None,
+                api_payload=neo_payload,
+                error=None,
+            )
+
+        if neo_decision.endpoint == "neo_lookup":
+            asteroid_id = extract_asteroid_id_from_query(q)
+            if not asteroid_id:
+                return OrchestrationResult(
+                    intent=intent,
+                    plan=plan,
+                    trace=trace,
+                    note=None,
+                    context=None,
+                    answer=None,
+                    verification=None,
+                    api_payload=None,
+                    error="NEO lookup needs an asteroid id (5+ digits) in the query, e.g. 'asteroid 3542519'.",
+                )
+            try:
+                neo_lookup_payload = fetch_and_process_neo_lookup(asteroid_id)
+            except Exception as e:
+                return OrchestrationResult(
+                    intent=intent,
+                    plan=plan,
+                    trace=trace,
+                    note=None,
+                    context=None,
+                    answer=None,
+                    verification=None,
+                    api_payload=None,
+                    error=f"NEO lookup request failed: {e}",
+                )
+            return OrchestrationResult(
+                intent=intent,
+                plan=plan,
+                trace=trace,
+                note=None,
+                context=None,
+                answer=None,
+                verification=None,
+                api_payload=neo_lookup_payload,
+                error=None,
+            )
+
+        return OrchestrationResult(
+            intent=intent,
+            plan=plan,
+            trace=trace,
+            note=(
+                "NEO API not implemented yet. "
+                f"Selected endpoint: {neo_decision.endpoint} ({neo_decision.reason})"
+            ),
+            context=None,
+            answer=None,
+            verification=None,
+            api_payload=neo_decision.to_dict(),
             error=None,
         )
 

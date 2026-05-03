@@ -188,7 +188,8 @@ python .\route.py "asteroids approaching earth this week" --debug
 End-to-end path: **classify** the query → **dispatch**.  
 - `DOCUMENT_SEARCH`: same retriever + answerer (+ optional verifier) as `qa.py`.
 - `APOD`: calls NASA APOD API directly and returns the API JSON payload.
-- Other API intents (`NEO`, `DONKI`, `EONET`) currently return a short "not implemented yet" message.
+- `NEO` (NeoWs): **`neo_feed`** and **`neo_lookup`** call NASA with `NASA_API_KEY`; **`neo_browse`** is routed but not wired yet (`orchestrate` shows a stub note).
+- `DONKI` / `EONET`: short "not implemented yet" stub.
 
 ```powershell
 python .\orchestrate.py --db data\processed\chunks.db --query "What is gravitational redshift?" --mode hybrid --verify
@@ -203,4 +204,8 @@ APOD notes:
 - Uses `NASA_API_KEY` from `.env`.
 - If query includes an ISO date (`YYYY-MM-DD`), that is passed as `date=...`; otherwise APOD defaults to today's item.
 - Streamlit UI renders APOD in a card with **title + image/video + explanation**.
+
+NEO Streamlit notes:
+- Feed overview uses cached `session_state.last_feed_data`; **View Details** drills into NeoWs lookup (session `selected_asteroid_id`).
+- **← Back** restores the cached feed/browse view without refetching the feed API.
 
