@@ -4,30 +4,63 @@ import re
 from dataclasses import dataclass
 from typing import Dict
 
+# -------------------------
+# REGEX SIGNALS
+# -------------------------
+
 _ID_RE = re.compile(r"\b\d{5,}\b")
-_PAGE_RE = re.compile(r"\bpage\s+\d+\b")
+_PAGE_RE = re.compile(r"\b(page|pg)\s+\d+\b")
 _DATE_RE = re.compile(r"\b20\d{2}-\d{2}-\d{2}\b")
 
-_LOOKUP_PHRASES = (
-    "tell me about asteroid",
-    "asteroid details",
-    "info about asteroid",
+# Relative / natural date words
+_RELATIVE_DATE_RE = re.compile(
+    r"\b(today|tomorrow|yesterday|week|month|next|upcoming|recent)\b"
 )
+
+# Very light asteroid name heuristic (can expand later)
+_NAME_RE = re.compile(
+    r"\b(apophis|bennu|eros|ryugu|itokawa)\b", re.IGNORECASE
+)
+
+# -------------------------
+# PHRASE SETS
+# -------------------------
+
+_LOOKUP_PHRASES = (
+    "tell me about",
+    "details of",
+    "what is",
+    "info on",
+    "information about",
+    "describe asteroid",
+)
+
+# IMPORTANT: removed generic "list"
 _BROWSE_PHRASES = (
-    "list",
-    "browse",
-    "catalog",
+    "browse asteroids",
+    "asteroid catalog",
     "all asteroids",
+    "asteroid database",
     "next page",
     "previous page",
 )
+
 _FEED_PHRASES = (
     "today",
-    "near earth",
+    "this week",
     "asteroids now",
-    "asteroid closest approach",
+    "near earth",
+    "close to earth",
+    "approaching earth",
+    "passing by earth",
+    "upcoming asteroids",
+    "recent asteroids",
+    "asteroid closest approach"
 )
 
+# -------------------------
+# DECISION CLASS
+# -------------------------
 
 @dataclass(frozen=True)
 class NeoEndpointDecision:
@@ -38,53 +71,98 @@ class NeoEndpointDecision:
         return {"endpoint": self.endpoint, "reason": self.reason}
 
 
+# -------------------------
+# ROUTER
+# -------------------------
+
 def route_neo_endpoint(query: str) -> NeoEndpointDecision:
     """
     Deterministic post-intent router for NEO only.
+
     Priority:
-      1) neo_lookup
-      2) neo_browse
-      3) neo_feed (default)
+      1) neo_lookup  (specific object)
+      2) neo_browse  (pagination / dataset navigation)
+      3) neo_feed    (time-based / general queries)
     """
+
     q = (query or "").strip().lower()
 
+    # -------------------------
+    # SIGNAL FLAGS
+    # -------------------------
+
+    has_id = bool(_ID_RE.search(q))
+    has_name = bool(_NAME_RE.search(q))
+    has_lookup_phrase = any(p in q for p in _LOOKUP_PHRASES)
+
+    has_page = bool(_PAGE_RE.search(q))
+    has_browse_phrase = any(p in q for p in _BROWSE_PHRASES)
+
+    has_date = bool(_DATE_RE.search(q))
+    has_relative_date = bool(_RELATIVE_DATE_RE.search(q))
+    has_feed_phrase = any(p in q for p in _FEED_PHRASES)
+
+    # -------------------------
     # 1) LOOKUP (highest priority)
-    if _ID_RE.search(q):
+    # -------------------------
+
+    if has_id:
         return NeoEndpointDecision(
             endpoint="neo_lookup",
-            reason="Query contains a likely NEO numeric id (5+ digits).",
-        )
-    if any(p in q for p in _LOOKUP_PHRASES):
-        return NeoEndpointDecision(
-            endpoint="neo_lookup",
-            reason="Query requests details/info for a specific asteroid.",
+            reason="Detected numeric NEO ID.",
         )
 
+    if has_name:
+        return NeoEndpointDecision(
+            endpoint="neo_lookup",
+            reason="Detected known asteroid name.",
+        )
+
+    if has_lookup_phrase and not (has_page or has_browse_phrase):
+        return NeoEndpointDecision(
+            endpoint="neo_lookup",
+            reason="Lookup-style phrasing detected.",
+        )
+
+    # -------------------------
     # 2) BROWSE
-    if _PAGE_RE.search(q):
+    # -------------------------
+
+    if has_page:
         return NeoEndpointDecision(
             endpoint="neo_browse",
-            reason="Query indicates pagination intent (page N).",
-        )
-    if any(p in q for p in _BROWSE_PHRASES):
-        return NeoEndpointDecision(
-            endpoint="neo_browse",
-            reason="Query asks to list/browse/catalog asteroids.",
+            reason="Pagination intent detected (page N).",
         )
 
-    # 3) FEED (default fallback)
-    if _DATE_RE.search(q):
+    if has_browse_phrase and not (has_date or has_relative_date):
+        return NeoEndpointDecision(
+            endpoint="neo_browse",
+            reason="Explicit dataset browsing intent.",
+        )
+
+    # -------------------------
+    # 3) FEED (default)
+    # -------------------------
+
+    if has_date:
         return NeoEndpointDecision(
             endpoint="neo_feed",
-            reason="Query includes a date, which maps to feed-style date windows.",
+            reason="Specific date detected.",
         )
-    if any(p in q for p in _FEED_PHRASES):
+
+    if has_relative_date:
         return NeoEndpointDecision(
             endpoint="neo_feed",
-            reason="Query is a general near-earth/current asteroid request.",
+            reason="Relative time expression detected.",
         )
+
+    if has_feed_phrase:
+        return NeoEndpointDecision(
+            endpoint="neo_feed",
+            reason="Near-earth/time-based query.",
+        )
+
     return NeoEndpointDecision(
         endpoint="neo_feed",
-        reason="No explicit lookup or browse signal; defaulting to feed.",
+        reason="No strong lookup or browse signal; defaulting to feed.",
     )
-
